@@ -96,7 +96,7 @@ export default function RoundFinished({
       <Card>
         <CardContent className="p-4">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Round Summary</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-2 gap-4 text-sm mb-4">
             <div>
               <span className="text-gray-600">Word Giver:</span>
               <span className="font-medium ml-2">{wordGiver?.name}</span>
@@ -107,13 +107,63 @@ export default function RoundFinished({
             </div>
             <div>
               <span className="text-gray-600">Wrong Guesses:</span>
-              <span className="font-medium ml-2">{currentRound?.wrongGuesses} / {currentRound?.maxGuesses}</span>
+              <span className="font-medium ml-2">{currentRound?.wrongGuesses || 0} / {currentRound?.maxGuesses || 6}</span>
             </div>
             <div>
-              <span className="text-gray-600">Letters Guessed:</span>
+              <span className="text-gray-600">Total Letters Guessed:</span>
               <span className="font-medium ml-2">{currentRound?.guessedLetters?.length || 0}</span>
             </div>
           </div>
+          
+          {/* Show the letters that were guessed */}
+          {currentRound?.guessedLetters && currentRound.guessedLetters.length > 0 && (
+            <div className="space-y-2">
+              <div>
+                <span className="text-gray-600 text-sm">Letters Guessed:</span>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {currentRound.guessedLetters.map((letter, index) => {
+                    const isCorrect = (currentRound.word || gameState.room.currentWord || '').includes(letter);
+                    return (
+                      <span 
+                        key={index}
+                        className={`px-2 py-1 rounded text-xs font-medium ${
+                          isCorrect 
+                            ? 'bg-green-100 text-green-800 border border-green-200' 
+                            : 'bg-red-100 text-red-800 border border-red-200'
+                        }`}
+                      >
+                        {letter}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+              
+              {/* Show wrong letters specifically */}
+              {(() => {
+                const word = currentRound.word || gameState.room.currentWord || '';
+                const wrongLetters = currentRound.guessedLetters.filter(letter => !word.includes(letter));
+                if (wrongLetters.length > 0) {
+                  return (
+                    <div>
+                      <span className="text-gray-600 text-sm">Wrong Letters:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {wrongLetters.map((letter, index) => (
+                          <span 
+                            key={index}
+                            className="px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800 border border-red-200 line-through"
+                          >
+                            {letter}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
