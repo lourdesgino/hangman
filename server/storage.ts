@@ -180,7 +180,13 @@ export class MemStorage implements IStorage {
 
   async getCurrentRound(roomId: string): Promise<GameRound | undefined> {
     const rounds = await this.getGameRounds(roomId);
-    return rounds.find(round => round.status === "in_progress");
+    // First try to find an in-progress round
+    const inProgressRound = rounds.find(round => round.status === "in_progress");
+    if (inProgressRound) return inProgressRound;
+    
+    // If no in-progress round, return the most recently completed round
+    const completedRounds = rounds.filter(round => round.status === "won" || round.status === "lost");
+    return completedRounds[completedRounds.length - 1];
   }
 
   async getPlayerByName(roomId: string, name: string): Promise<Player | undefined> {

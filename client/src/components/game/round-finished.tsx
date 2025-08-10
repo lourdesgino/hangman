@@ -107,7 +107,7 @@ export default function RoundFinished({
             </div>
             <div>
               <span className="text-gray-600">Wrong Guesses:</span>
-              <span className="font-medium ml-2">{currentRound?.wrongGuesses || 0} / {currentRound?.maxGuesses || 6}</span>
+              <span className="font-medium ml-2">{currentRound?.wrongGuesses || 0} / {currentRound?.maxGuesses || 9}</span>
             </div>
             <div>
               <span className="text-gray-600">Total Letters Guessed:</span>
