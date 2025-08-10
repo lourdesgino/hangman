@@ -76,7 +76,7 @@ async function checkRoundEnd(roomCode: string): Promise<{ roundEnded: boolean; w
   }
   
   // Check if max wrong guesses reached
-  if ((currentRound.wrongGuesses || 0) >= (currentRound.maxGuesses || 6)) {
+  if ((currentRound.wrongGuesses || 0) >= (currentRound.maxGuesses || 9)) {
     await storage.updateGameRound(currentRound.id, { 
       status: "lost",
       pointsAwarded: 0,
@@ -117,7 +117,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 gameStatus: "waiting",
                 guessedLetters: [],
                 wrongGuesses: 0,
-                maxGuesses: 6,
+                maxGuesses: 9,
                 roundNumber: 1
               });
               
@@ -281,7 +281,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               hint,
               guessedLetters: [],
               wrongGuesses: 0,
-              maxGuesses: 6,
+              maxGuesses: 9,
               status: "in_progress"
             });
             

@@ -17,7 +17,7 @@ export const gameRooms = pgTable("game_rooms", {
   hint: text("hint"),
   guessedLetters: jsonb("guessed_letters").$type<string[]>().default([]),
   wrongGuesses: integer("wrong_guesses").default(0),
-  maxGuesses: integer("max_guesses").default(6),
+  maxGuesses: integer("max_guesses").default(9),
   wordGiverId: varchar("word_giver_id"), // Who sets the word for this round
   guesserId: varchar("guesser_id"), // Who guesses the word for this round
   gameStatus: varchar("game_status").default("waiting"), // waiting, word_setting, guessing, round_finished, game_finished
@@ -55,7 +55,7 @@ export const gameRounds = pgTable("game_rounds", {
   hint: text("hint").notNull(),
   guessedLetters: jsonb("guessed_letters").$type<string[]>().default([]),
   wrongGuesses: integer("wrong_guesses").default(0),
-  maxGuesses: integer("max_guesses").default(6),
+  maxGuesses: integer("max_guesses").default(9),
   status: varchar("status").default("in_progress"), // in_progress, won, lost
   pointsAwarded: integer("points_awarded").default(0),
   completedAt: timestamp("completed_at"),
