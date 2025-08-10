@@ -1,23 +1,27 @@
 import { useState } from "react";
 import { useWebSocket } from "@/hooks/use-websocket";
-import WelcomeScreen from "@/components/game/welcome-screen";
+import WelcomeRejoin from "@/components/game/welcome-rejoin";
 import GameLobby from "@/components/game/game-lobby";
+import WordSetting from "@/components/game/word-setting";
 import GameInterface from "@/components/game/game-interface";
+import RoundFinished from "@/components/game/round-finished";
 import GameOverModal from "@/components/game/game-over-modal";
 import type { GameState } from "@shared/schema";
 
 export default function Home() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [playerId, setPlayerId] = useState<string>("");
-  const [gameEndCheck, setGameEndCheck] = useState<any>(null);
+  const [roundEndCheck, setRoundEndCheck] = useState<any>(null);
   const [showGameOver, setShowGameOver] = useState(false);
 
   const { sendMessage, isConnected } = useWebSocket((message) => {
     switch (message.type) {
       case 'game_state_update':
         setGameState(message.payload);
-        if (message.payload.gameEndCheck?.gameEnded) {
-          setGameEndCheck(message.payload.gameEndCheck);
+        if (message.payload.roundEndCheck?.roundEnded) {
+          setRoundEndCheck(message.payload.roundEndCheck);
+        }
+        if (message.payload.finalWinner) {
           setShowGameOver(true);
         }
         break;
@@ -30,6 +34,10 @@ export default function Home() {
   const getCurrentScreen = () => {
     if (!gameState) return 'welcome';
     if (gameState.room.gameStatus === 'waiting') return 'lobby';
+    if (gameState.room.gameStatus === 'word_setting') return 'word_setting';
+    if (gameState.room.gameStatus === 'guessing') return 'game';
+    if (gameState.room.gameStatus === 'round_finished') return 'round_finished';
+    if (gameState.room.gameStatus === 'game_finished') return 'game_over';
     return 'game';
   };
 
@@ -40,6 +48,16 @@ export default function Home() {
         playerName,
         roomCode,
         isCreating: !roomCode
+      }
+    });
+  };
+
+  const handleRejoinRoom = (playerName: string, roomCode: string) => {
+    sendMessage({
+      type: 'rejoin_room',
+      payload: {
+        playerName,
+        roomCode
       }
     });
   };
@@ -55,10 +73,20 @@ export default function Home() {
     });
   };
 
-  const handleNewGame = () => {
-    sendMessage({ type: 'new_game' });
-    setShowGameOver(false);
-    setGameEndCheck(null);
+  const handleSetWord = (word: string, hint: string) => {
+    sendMessage({
+      type: 'set_word',
+      payload: { word, hint }
+    });
+  };
+
+  const handleStartRound = () => {
+    sendMessage({ type: 'start_round' });
+    setRoundEndCheck(null);
+  };
+
+  const handleEndGame = () => {
+    sendMessage({ type: 'end_game' });
   };
 
   const handleLeaveGame = () => {
@@ -66,7 +94,7 @@ export default function Home() {
     setGameState(null);
     setPlayerId("");
     setShowGameOver(false);
-    setGameEndCheck(null);
+    setRoundEndCheck(null);
   };
 
   const currentPlayer = gameState?.players.find(p => p.name === playerId);
@@ -102,7 +130,11 @@ export default function Home() {
       {/* Main Content */}
       <main className="max-w-4xl mx-auto px-4 py-8">
         {getCurrentScreen() === 'welcome' && (
-          <WelcomeScreen onJoinRoom={handleJoinRoom} setPlayerId={setPlayerId} />
+          <WelcomeRejoin 
+            onJoinRoom={handleJoinRoom} 
+            onRejoinRoom={handleRejoinRoom}
+            setPlayerId={setPlayerId} 
+          />
         )}
 
         {getCurrentScreen() === 'lobby' && gameState && (
@@ -113,21 +145,40 @@ export default function Home() {
           />
         )}
 
+        {getCurrentScreen() === 'word_setting' && gameState && (
+          <WordSetting
+            gameState={gameState}
+            currentPlayer={currentPlayer}
+            onSetWord={handleSetWord}
+          />
+        )}
+
         {getCurrentScreen() === 'game' && gameState && (
           <GameInterface 
             gameState={gameState}
             currentPlayer={currentPlayer}
             onGuessLetter={handleGuessLetter}
-            onNewGame={handleNewGame}
             onLeaveGame={handleLeaveGame}
           />
         )}
 
-        {showGameOver && gameEndCheck && gameState && (
-          <GameOverModal
-            gameEndCheck={gameEndCheck}
+        {getCurrentScreen() === 'round_finished' && gameState && (
+          <RoundFinished
             gameState={gameState}
-            onPlayAgain={handleNewGame}
+            currentPlayer={currentPlayer}
+            roundEndCheck={roundEndCheck}
+            onStartRound={handleStartRound}
+            onEndGame={handleEndGame}
+          />
+        )}
+
+        {(getCurrentScreen() === 'game_over' || showGameOver) && gameState && (
+          <GameOverModal
+            gameState={gameState}
+            onPlayAgain={() => {
+              setShowGameOver(false);
+              handleLeaveGame();
+            }}
             onBackToLobby={handleLeaveGame}
           />
         )}

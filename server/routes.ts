@@ -2,22 +2,14 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import { storage } from "./storage";
-import { insertGameRoomSchema, insertPlayerSchema, insertGameHistorySchema, type WebSocketMessage, type GameState } from "@shared/schema";
+import { insertGameRoomSchema, insertPlayerSchema, insertGameHistorySchema, insertGameRoundSchema, type WebSocketMessage, type GameState } from "@shared/schema";
 import { z } from "zod";
-
-// Word categories and lists
-const WORD_CATEGORIES = {
-  "Family & Relationships": ["FAMILY", "MOTHER", "FATHER", "SISTER", "BROTHER", "COUSIN", "GRANDMA", "GRANDPA", "UNCLE", "AUNT"],
-  "Animals": ["ELEPHANT", "GIRAFFE", "PENGUIN", "DOLPHIN", "BUTTERFLY", "KANGAROO", "OCTOPUS", "HAMSTER"],
-  "Food & Cooking": ["PIZZA", "BURGER", "SANDWICH", "CHOCOLATE", "STRAWBERRY", "BANANA", "APPLE", "ORANGE"],
-  "Sports & Games": ["FOOTBALL", "BASKETBALL", "TENNIS", "SWIMMING", "CYCLING", "BASEBALL", "SOCCER"],
-  "Travel & Places": ["MOUNTAIN", "OCEAN", "DESERT", "FOREST", "CITY", "VILLAGE", "AIRPORT", "HOTEL"]
-};
 
 interface ClientConnection {
   ws: WebSocket;
   playerId?: string;
   roomCode?: string;
+  playerName?: string;
 }
 
 const clients = new Map<string, ClientConnection>();
@@ -31,12 +23,10 @@ function generateRoomCode(): string {
   return result;
 }
 
-function getRandomWord(): { word: string; category: string } {
-  const categories = Object.keys(WORD_CATEGORIES);
-  const category = categories[Math.floor(Math.random() * categories.length)];
-  const words = WORD_CATEGORIES[category as keyof typeof WORD_CATEGORIES];
-  const word = words[Math.floor(Math.random() * words.length)];
-  return { word, category };
+function getNextWordGiver(players: any[], currentWordGiverId: string): string {
+  const currentIndex = players.findIndex(p => p.id === currentWordGiverId);
+  const nextIndex = (currentIndex + 1) % players.length;
+  return players[nextIndex].id;
 }
 
 function broadcastToRoom(roomCode: string, message: WebSocketMessage, excludeClientId?: string) {
@@ -47,19 +37,24 @@ function broadcastToRoom(roomCode: string, message: WebSocketMessage, excludeCli
   });
 }
 
-function getNextPlayer(players: any[], currentPlayerId: string): string {
-  const currentIndex = players.findIndex(p => p.id === currentPlayerId);
-  const nextIndex = (currentIndex + 1) % players.length;
-  return players[nextIndex].id;
+function determineGameRoles(players: any[], roundNumber: number): { wordGiverId: string; guesserId: string } {
+  // Alternate who gives the word each round
+  const wordGiverIndex = (roundNumber - 1) % players.length;
+  const guesserIndex = (wordGiverIndex + 1) % players.length;
+  
+  return {
+    wordGiverId: players[wordGiverIndex].id,
+    guesserId: players[guesserIndex].id
+  };
 }
 
-async function checkGameEnd(roomCode: string): Promise<{ gameEnded: boolean; winner?: string; reason?: string }> {
+async function checkRoundEnd(roomCode: string): Promise<{ roundEnded: boolean; winner?: string; reason?: string }> {
   const gameState = await storage.getGameState(roomCode);
-  if (!gameState) return { gameEnded: false };
+  if (!gameState || !gameState.currentRound) return { roundEnded: false };
 
-  const { room, players } = gameState;
-  const currentWord = room.currentWord || '';
-  const guessedLetters = room.guessedLetters || [];
+  const { currentRound, players } = gameState;
+  const currentWord = currentRound.word || '';
+  const guessedLetters = currentRound.guessedLetters || [];
   
   // Check if word is completely guessed
   const isWordComplete = currentWord.split('').every(letter => 
@@ -67,27 +62,30 @@ async function checkGameEnd(roomCode: string): Promise<{ gameEnded: boolean; win
   );
   
   if (isWordComplete) {
-    // Current player wins
-    const currentPlayer = players.find(p => p.id === room.currentTurn);
-    if (currentPlayer) {
-      await storage.updatePlayer(currentPlayer.id, { score: (currentPlayer.score || 0) + 1 });
+    // Guesser wins the round
+    const guesser = players.find(p => p.id === currentRound.guesserId);
+    if (guesser) {
+      await storage.updatePlayer(guesser.id, { score: (guesser.score || 0) + 1 });
     }
-    await storage.updateGameRoom(room.id, { 
-      gameStatus: "finished",
-      winner: room.currentTurn || undefined
+    await storage.updateGameRound(currentRound.id, { 
+      status: "won",
+      pointsAwarded: 1,
+      completedAt: new Date()
     });
-    return { gameEnded: true, winner: currentPlayer?.name, reason: "word_guessed" };
+    return { roundEnded: true, winner: guesser?.name, reason: "word_guessed" };
   }
   
   // Check if max wrong guesses reached
-  if ((room.wrongGuesses || 0) >= (room.maxGuesses || 6)) {
-    await storage.updateGameRoom(room.id, { 
-      gameStatus: "finished"
+  if ((currentRound.wrongGuesses || 0) >= (currentRound.maxGuesses || 6)) {
+    await storage.updateGameRound(currentRound.id, { 
+      status: "lost",
+      pointsAwarded: 0,
+      completedAt: new Date()
     });
-    return { gameEnded: true, reason: "max_guesses_reached" };
+    return { roundEnded: true, reason: "max_guesses_reached" };
   }
   
-  return { gameEnded: false };
+  return { roundEnded: false };
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -119,18 +117,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 gameStatus: "waiting",
                 guessedLetters: [],
                 wrongGuesses: 0,
-                maxGuesses: 6
+                maxGuesses: 6,
+                roundNumber: 1
               });
               
               const player = await storage.createPlayer({
                 roomId: room.id,
                 name: playerName,
                 score: 0,
-                isReady: true
+                isReady: true,
+                isOnline: true
               });
               
               client.playerId = player.id;
               client.roomCode = newRoomCode;
+              client.playerName = playerName;
               
               ws.send(JSON.stringify({
                 type: 'game_state_update',
@@ -159,11 +160,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 roomId: gameState.room.id,
                 name: playerName,
                 score: 0,
-                isReady: true
+                isReady: true,
+                isOnline: true
               });
               
               client.playerId = player.id;
               client.roomCode = roomCode;
+              client.playerName = playerName;
               
               // Broadcast to all clients in room
               const updatedGameState = await storage.getGameState(roomCode);
@@ -180,6 +183,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
             break;
           }
 
+          case 'rejoin_room': {
+            const { roomCode, playerName } = message.payload;
+            
+            const gameState = await storage.getGameState(roomCode);
+            if (!gameState) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                payload: { message: 'Room not found' }
+              }));
+              return;
+            }
+            
+            // Find existing player by name
+            const existingPlayer = await storage.getPlayerByName(gameState.room.id, playerName);
+            if (!existingPlayer) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                payload: { message: 'Player not found in this room' }
+              }));
+              return;
+            }
+            
+            // Update player online status
+            await storage.updatePlayerOnlineStatus(existingPlayer.id, true);
+            
+            client.playerId = existingPlayer.id;
+            client.roomCode = roomCode;
+            client.playerName = playerName;
+            
+            // Send updated game state
+            const updatedGameState = await storage.getGameState(roomCode);
+            broadcastToRoom(roomCode, {
+              type: 'game_state_update',
+              payload: updatedGameState
+            });
+            
+            ws.send(JSON.stringify({
+              type: 'game_state_update',
+              payload: updatedGameState
+            }));
+            break;
+          }
+
           case 'start_game': {
             if (!client.roomCode) return;
             
@@ -192,16 +238,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
               return;
             }
             
-            const { word, category } = getRandomWord();
-            const firstPlayer = gameState.players[0];
+            // Determine roles for first round
+            const { wordGiverId, guesserId } = determineGameRoles(gameState.players, 1);
             
             await storage.updateGameRoom(gameState.room.id, {
-              currentWord: word,
-              category,
-              gameStatus: "playing",
-              currentTurn: firstPlayer.id,
+              gameStatus: "word_setting",
+              wordGiverId,
+              guesserId,
+              roundNumber: 1
+            });
+            
+            const updatedGameState = await storage.getGameState(client.roomCode);
+            broadcastToRoom(client.roomCode, {
+              type: 'game_state_update',
+              payload: updatedGameState
+            });
+            break;
+          }
+
+          case 'set_word': {
+            if (!client.roomCode || !client.playerId) return;
+            
+            const { word, hint } = message.payload;
+            const gameState = await storage.getGameState(client.roomCode);
+            
+            if (!gameState || gameState.room.gameStatus !== "word_setting") return;
+            if (gameState.room.wordGiverId !== client.playerId) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                payload: { message: 'Not your turn to set the word' }
+              }));
+              return;
+            }
+            
+            // Create new round
+            const round = await storage.createGameRound({
+              roomId: gameState.room.id,
+              roundNumber: gameState.room.roundNumber || 1,
+              wordGiverId: gameState.room.wordGiverId,
+              guesserId: gameState.room.guesserId,
+              word: word.toUpperCase(),
+              hint,
               guessedLetters: [],
-              wrongGuesses: 0
+              wrongGuesses: 0,
+              maxGuesses: 6,
+              status: "in_progress"
+            });
+            
+            await storage.updateGameRoom(gameState.room.id, {
+              gameStatus: "guessing",
+              currentWord: word.toUpperCase(),
+              hint
             });
             
             await storage.clearGameHistory(gameState.room.id);
@@ -220,18 +307,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const { letter } = message.payload;
             const gameState = await storage.getGameState(client.roomCode);
             
-            if (!gameState || gameState.room.gameStatus !== "playing") return;
-            if (gameState.room.currentTurn !== client.playerId) {
+            if (!gameState || gameState.room.gameStatus !== "guessing" || !gameState.currentRound) return;
+            if (gameState.room.guesserId !== client.playerId) {
               ws.send(JSON.stringify({
                 type: 'error',
-                payload: { message: 'Not your turn' }
+                payload: { message: 'Not your turn to guess' }
               }));
               return;
             }
             
             const upperLetter = letter.toUpperCase();
-            const currentWord = gameState.room.currentWord || '';
-            const guessedLetters = gameState.room.guessedLetters || [];
+            const currentWord = gameState.currentRound.word || '';
+            const guessedLetters = gameState.currentRound.guessedLetters || [];
             
             if (guessedLetters.includes(upperLetter)) {
               ws.send(JSON.stringify({
@@ -243,13 +330,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             const isCorrect = currentWord.includes(upperLetter);
             const newGuessedLetters = [...guessedLetters, upperLetter];
-            const newWrongGuesses = isCorrect ? gameState.room.wrongGuesses : (gameState.room.wrongGuesses || 0) + 1;
+            const newWrongGuesses = isCorrect ? gameState.currentRound.wrongGuesses : (gameState.currentRound.wrongGuesses || 0) + 1;
             
-            // Update game state
-            await storage.updateGameRoom(gameState.room.id, {
+            // Update round state
+            await storage.updateGameRound(gameState.currentRound.id, {
               guessedLetters: newGuessedLetters,
-              wrongGuesses: newWrongGuesses,
-              currentTurn: isCorrect ? client.playerId : getNextPlayer(gameState.players, client.playerId)
+              wrongGuesses: newWrongGuesses
             });
             
             // Add to history
@@ -260,37 +346,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
               isCorrect
             });
             
-            // Check for game end
-            const gameEndCheck = await checkGameEnd(client.roomCode);
+            // Check for round end
+            const roundEndCheck = await checkRoundEnd(client.roomCode);
+            
+            if (roundEndCheck.roundEnded) {
+              await storage.updateGameRoom(gameState.room.id, {
+                gameStatus: "round_finished"
+              });
+            }
             
             const updatedGameState = await storage.getGameState(client.roomCode);
             broadcastToRoom(client.roomCode, {
               type: 'game_state_update',
-              payload: { ...updatedGameState, gameEndCheck }
+              payload: { ...updatedGameState, roundEndCheck }
             });
             break;
           }
 
-          case 'new_game': {
+          case 'start_round': {
             if (!client.roomCode) return;
             
             const gameState = await storage.getGameState(client.roomCode);
-            if (!gameState) return;
+            if (!gameState || gameState.room.gameStatus !== "round_finished") return;
             
-            const { word, category } = getRandomWord();
-            const firstPlayer = gameState.players[0];
+            const newRoundNumber = (gameState.room.roundNumber || 1) + 1;
+            const { wordGiverId, guesserId } = determineGameRoles(gameState.players, newRoundNumber);
             
             await storage.updateGameRoom(gameState.room.id, {
-              currentWord: word,
-              category,
-              gameStatus: "playing",
-              currentTurn: firstPlayer.id,
-              guessedLetters: [],
-              wrongGuesses: 0,
-              winner: null
+              gameStatus: "word_setting",
+              wordGiverId,
+              guesserId,
+              roundNumber: newRoundNumber,
+              currentWord: null,
+              hint: null
             });
-            
-            await storage.clearGameHistory(gameState.room.id);
             
             const updatedGameState = await storage.getGameState(client.roomCode);
             broadcastToRoom(client.roomCode, {
@@ -300,15 +389,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
             break;
           }
 
+          case 'end_game': {
+            if (!client.roomCode) return;
+            
+            const gameState = await storage.getGameState(client.roomCode);
+            if (!gameState) return;
+            
+            // Calculate final winner
+            const sortedPlayers = gameState.players.sort((a, b) => (b.score || 0) - (a.score || 0));
+            const winner = sortedPlayers[0];
+            
+            await storage.updateGameRoom(gameState.room.id, {
+              gameStatus: "game_finished"
+            });
+            
+            const updatedGameState = await storage.getGameState(client.roomCode);
+            broadcastToRoom(client.roomCode, {
+              type: 'game_state_update',
+              payload: { ...updatedGameState, finalWinner: winner }
+            });
+            break;
+          }
+
           case 'leave_room': {
             if (!client.roomCode || !client.playerId) return;
             
-            await storage.deletePlayer(client.playerId);
+            // Mark player as offline instead of deleting
+            await storage.updatePlayerOnlineStatus(client.playerId, false);
             
             const gameState = await storage.getGameState(client.roomCode);
-            if (gameState && gameState.players.length === 0) {
-              await storage.deleteGameRoom(gameState.room.id);
-            } else if (gameState) {
+            if (gameState) {
               broadcastToRoom(client.roomCode, {
                 type: 'game_state_update',
                 payload: gameState
@@ -317,6 +427,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             client.playerId = undefined;
             client.roomCode = undefined;
+            client.playerName = undefined;
             break;
           }
         }
@@ -332,12 +443,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     ws.on('close', async () => {
       const client = clients.get(clientId);
       if (client?.playerId && client?.roomCode) {
-        await storage.deletePlayer(client.playerId);
+        // Mark player as offline instead of deleting
+        await storage.updatePlayerOnlineStatus(client.playerId, false);
         
         const gameState = await storage.getGameState(client.roomCode);
-        if (gameState && gameState.players.length === 0) {
-          await storage.deleteGameRoom(gameState.room.id);
-        } else if (gameState) {
+        if (gameState) {
           broadcastToRoom(client.roomCode, {
             type: 'game_state_update',
             payload: gameState

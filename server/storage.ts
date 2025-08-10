@@ -1,4 +1,4 @@
-import { type GameRoom, type InsertGameRoom, type Player, type InsertPlayer, type GameHistory, type InsertGameHistory, type GameState } from "@shared/schema";
+import { type GameRoom, type InsertGameRoom, type Player, type InsertPlayer, type GameHistory, type InsertGameHistory, type GameRound, type InsertGameRound, type GameState } from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
@@ -22,6 +22,17 @@ export interface IStorage {
   getGameHistory(roomId: string): Promise<GameHistory[]>;
   clearGameHistory(roomId: string): Promise<void>;
 
+  // Game Rounds
+  createGameRound(round: InsertGameRound): Promise<GameRound>;
+  getGameRound(roomId: string, roundNumber: number): Promise<GameRound | undefined>;
+  updateGameRound(id: string, updates: Partial<GameRound>): Promise<GameRound | undefined>;
+  getGameRounds(roomId: string): Promise<GameRound[]>;
+  getCurrentRound(roomId: string): Promise<GameRound | undefined>;
+
+  // Player Management
+  getPlayerByName(roomId: string, name: string): Promise<Player | undefined>;
+  updatePlayerOnlineStatus(playerId: string, isOnline: boolean): Promise<void>;
+
   // Utility
   getGameState(roomCode: string): Promise<GameState | undefined>;
 }
@@ -30,11 +41,13 @@ export class MemStorage implements IStorage {
   private gameRooms: Map<string, GameRoom>;
   private players: Map<string, Player>;
   private gameHistory: Map<string, GameHistory>;
+  private gameRounds: Map<string, GameRound>;
 
   constructor() {
     this.gameRooms = new Map();
     this.players = new Map();
     this.gameHistory = new Map();
+    this.gameRounds = new Map();
   }
 
   async createGameRoom(insertRoom: InsertGameRoom): Promise<GameRoom> {
@@ -134,14 +147,69 @@ export class MemStorage implements IStorage {
     });
   }
 
+  async createGameRound(insertRound: InsertGameRound): Promise<GameRound> {
+    const id = randomUUID();
+    const round: GameRound = {
+      ...insertRound,
+      id,
+      createdAt: new Date(),
+    };
+    this.gameRounds.set(id, round);
+    return round;
+  }
+
+  async getGameRound(roomId: string, roundNumber: number): Promise<GameRound | undefined> {
+    return Array.from(this.gameRounds.values())
+      .find(round => round.roomId === roomId && round.roundNumber === roundNumber);
+  }
+
+  async updateGameRound(id: string, updates: Partial<GameRound>): Promise<GameRound | undefined> {
+    const round = this.gameRounds.get(id);
+    if (!round) return undefined;
+    
+    const updatedRound = { ...round, ...updates };
+    this.gameRounds.set(id, updatedRound);
+    return updatedRound;
+  }
+
+  async getGameRounds(roomId: string): Promise<GameRound[]> {
+    return Array.from(this.gameRounds.values())
+      .filter(round => round.roomId === roomId)
+      .sort((a, b) => (a.roundNumber || 0) - (b.roundNumber || 0));
+  }
+
+  async getCurrentRound(roomId: string): Promise<GameRound | undefined> {
+    const rounds = await this.getGameRounds(roomId);
+    return rounds.find(round => round.status === "in_progress");
+  }
+
+  async getPlayerByName(roomId: string, name: string): Promise<Player | undefined> {
+    return Array.from(this.players.values())
+      .find(player => player.roomId === roomId && player.name === name);
+  }
+
+  async updatePlayerOnlineStatus(playerId: string, isOnline: boolean): Promise<void> {
+    const player = this.players.get(playerId);
+    if (player) {
+      const updatedPlayer = { 
+        ...player, 
+        isOnline, 
+        lastSeen: new Date()
+      };
+      this.players.set(playerId, updatedPlayer);
+    }
+  }
+
   async getGameState(roomCode: string): Promise<GameState | undefined> {
     const room = await this.getGameRoomByCode(roomCode);
     if (!room) return undefined;
     
     const players = await this.getPlayersByRoom(room.id);
     const history = await this.getGameHistory(room.id);
+    const rounds = await this.getGameRounds(room.id);
+    const currentRound = await this.getCurrentRound(room.id);
     
-    return { room, players, history };
+    return { room, players, history, rounds, currentRound };
   }
 }
 

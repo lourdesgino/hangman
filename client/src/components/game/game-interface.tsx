@@ -8,7 +8,6 @@ interface GameInterfaceProps {
   gameState: GameState;
   currentPlayer?: Player;
   onGuessLetter: (letter: string) => void;
-  onNewGame: () => void;
   onLeaveGame: () => void;
 }
 
@@ -18,14 +17,14 @@ export default function GameInterface({
   gameState, 
   currentPlayer, 
   onGuessLetter, 
-  onNewGame, 
   onLeaveGame 
 }: GameInterfaceProps) {
-  const { room, players, history } = gameState;
-  const isMyTurn = currentPlayer && room.currentTurn === currentPlayer.id;
-  const currentTurnPlayer = players.find(p => p.id === room.currentTurn);
+  const { room, players, history, currentRound } = gameState;
+  const isMyTurn = currentPlayer && room.guesserId === currentPlayer.id;
+  const wordGiver = players.find(p => p.id === room.wordGiverId);
+  const guesser = players.find(p => p.id === room.guesserId);
   
-  const wordDisplay = getWordDisplay(room.currentWord || '', room.guessedLetters || []);
+  const wordDisplay = getWordDisplay(currentRound?.word || '', currentRound?.guessedLetters || []);
   const recentGuesses = history.slice(-10).reverse();
 
   return (
@@ -40,9 +39,9 @@ export default function GameInterface({
             </div>
             <div className="flex items-center space-x-4">
               <div className="flex items-center space-x-2">
-                <span className="text-sm text-gray-600">Turn:</span>
+                <span className="text-sm text-gray-600">Round {room.roundNumber}:</span>
                 <span className="font-semibold text-gray-900">
-                  {currentTurnPlayer?.name}
+                  {guesser?.name} is guessing
                   {isMyTurn && <span className="text-primary ml-1">(You)</span>}
                 </span>
               </div>
@@ -66,12 +65,12 @@ export default function GameInterface({
           <Card>
             <CardContent className="p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">Hangman</h3>
-              <HangmanDrawing wrongGuesses={room.wrongGuesses || 0} />
+              <HangmanDrawing wrongGuesses={currentRound?.wrongGuesses || 0} />
               <div className="text-center mt-4">
                 <span className="text-sm text-gray-600">Wrong guesses: </span>
-                <span className="font-semibold text-error">{room.wrongGuesses || 0}</span>
+                <span className="font-semibold text-error">{currentRound?.wrongGuesses || 0}</span>
                 <span className="text-gray-600"> / </span>
-                <span className="font-semibold text-gray-900">{room.maxGuesses || 6}</span>
+                <span className="font-semibold text-gray-900">{currentRound?.maxGuesses || 6}</span>
               </div>
             </CardContent>
           </Card>
@@ -97,8 +96,8 @@ export default function GameInterface({
                 </div>
               </div>
               <div className="text-center mt-4">
-                <span className="text-sm text-gray-600">Category: </span>
-                <span className="font-medium text-gray-900">{room.category}</span>
+                <span className="text-sm text-gray-600">Hint: </span>
+                <span className="font-medium text-gray-900">{currentRound?.hint}</span>
               </div>
             </CardContent>
           </Card>
@@ -109,7 +108,7 @@ export default function GameInterface({
               <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center">Select a Letter</h3>
               <div className="grid grid-cols-6 sm:grid-cols-7 md:grid-cols-9 gap-2">
                 {ALPHABET.map((letter) => {
-                  const status = getLetterStatus(letter, room.guessedLetters || [], room.currentWord || '');
+                  const status = getLetterStatus(letter, currentRound?.guessedLetters || [], currentRound?.word || '');
                   
                   return (
                     <Button
@@ -132,7 +131,7 @@ export default function GameInterface({
               </div>
               {!isMyTurn && (
                 <p className="text-center text-sm text-gray-500 mt-4">
-                  Waiting for {currentTurnPlayer?.name}'s turn...
+                  {wordGiver?.name} is the word giver. Waiting for {guesser?.name} to guess...
                 </p>
               )}
             </CardContent>
@@ -150,37 +149,54 @@ export default function GameInterface({
                   <div 
                     key={player.id}
                     className={`flex items-center justify-between p-3 rounded-lg border ${
-                      room.currentTurn === player.id
+                      room.wordGiverId === player.id
                         ? 'bg-primary/5 border-primary/20'
+                        : room.guesserId === player.id
+                        ? 'bg-secondary/5 border-secondary/20'
                         : 'bg-gray-50 border-gray-200'
                     }`}
                   >
                     <div className="flex items-center space-x-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                        room.currentTurn === player.id
+                        room.wordGiverId === player.id
                           ? 'bg-primary/20'
+                          : room.guesserId === player.id
+                          ? 'bg-secondary/20'
                           : 'bg-gray-200'
                       }`}>
                         <i className={`fas text-sm ${
-                          room.currentTurn === player.id
-                            ? 'fa-crown text-primary'
+                          room.wordGiverId === player.id
+                            ? 'fa-pencil-alt text-primary'
+                            : room.guesserId === player.id
+                            ? 'fa-search text-secondary'
                             : 'fa-user text-gray-400'
                         }`}></i>
                       </div>
                       <div>
                         <div className="font-medium text-gray-900">{player.name}</div>
                         <div className={`text-xs font-medium ${
-                          room.currentTurn === player.id
+                          room.wordGiverId === player.id
                             ? 'text-primary'
+                            : room.guesserId === player.id
+                            ? 'text-secondary'
                             : 'text-gray-500'
                         }`}>
-                          {room.currentTurn === player.id ? 'Your Turn' : 'Waiting...'}
+                          {room.wordGiverId === player.id 
+                            ? 'Word Giver' 
+                            : room.guesserId === player.id 
+                            ? 'Guesser' 
+                            : 'Waiting...'}
                         </div>
                       </div>
                     </div>
                     <div className="text-right">
                       <div className="text-sm font-semibold text-gray-900">
                         Score: {player.score || 0}
+                      </div>
+                      <div className={`text-xs ${
+                        player.isOnline ? 'text-green-600' : 'text-gray-400'
+                      }`}>
+                        {player.isOnline ? 'Online' : 'Offline'}
                       </div>
                     </div>
                   </div>
@@ -219,12 +235,6 @@ export default function GameInterface({
           {/* Game Actions */}
           <Card>
             <CardContent className="p-4 space-y-3">
-              <Button 
-                onClick={onNewGame}
-                className="w-full bg-gray-100 text-gray-700 hover:bg-gray-200"
-              >
-                New Game
-              </Button>
               <Button 
                 onClick={onLeaveGame}
                 variant="outline"
