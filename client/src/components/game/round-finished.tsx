@@ -51,9 +51,11 @@ export default function RoundFinished({
             
             <div className="bg-gray-50 rounded-lg p-4 max-w-md mx-auto">
               <p className="text-gray-600 text-sm">The word was:</p>
-              <p className="font-bold text-primary text-xl">{currentRound?.word}</p>
+              <p className="font-bold text-primary text-2xl tracking-wider font-mono">
+                {currentRound?.word || gameState.room.currentWord}
+              </p>
               <p className="text-gray-600 text-sm mt-2">
-                <span className="font-medium">Hint:</span> {currentRound?.hint}
+                <span className="font-medium">Hint:</span> {currentRound?.hint || gameState.room.hint}
               </p>
             </div>
             
