@@ -70,7 +70,7 @@ export default function GameInterface({
                 <span className="text-sm text-gray-600">Wrong guesses: </span>
                 <span className="font-semibold text-error">{currentRound?.wrongGuesses || 0}</span>
                 <span className="text-gray-600"> / </span>
-                <span className="font-semibold text-gray-900">{currentRound?.maxGuesses || 6}</span>
+                <span className="font-semibold text-gray-900">{currentRound?.maxGuesses || 9}</span>
               </div>
             </CardContent>
           </Card>
