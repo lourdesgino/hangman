@@ -22,11 +22,11 @@ services:
     networks:
       - hangman-network
 
-  # Hangman Application
+  # Hangman Application (Pre-built)
   app:
     build: 
       context: .
-      dockerfile: Dockerfile.synology
+      dockerfile: Dockerfile.prebuilt
     restart: unless-stopped
     ports:
       - "3000:5000"

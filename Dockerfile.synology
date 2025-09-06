@@ -1,18 +1,16 @@
-# Alternative Dockerfile optimized for Synology NAS and ARM64 architectures
+# Simplified Dockerfile optimized for Synology NAS
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Update package list and install build dependencies
-RUN apk update && apk add --no-cache python3 make g++
-
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies with more verbose output for debugging
-RUN npm config set loglevel verbose && \
+# Install dependencies with explicit flags and retry logic
+RUN npm config set registry https://registry.npmjs.org/ && \
+    npm config set loglevel verbose && \
     npm cache clean --force && \
-    npm install --include=dev --no-audit --no-fund && \
+    npm install --include=dev --no-audit --no-fund --maxsockets 1 && \
     echo "Checking vite installation:" && \
     npm list vite && \
     npx vite --version
@@ -20,12 +18,13 @@ RUN npm config set loglevel verbose && \
 # Copy source code
 COPY . .
 
-# Build with explicit npx calls
+# Build with explicit npx calls and error handling
 RUN echo "Starting build process..." && \
     npx vite build && \
     echo "Vite build completed, starting esbuild..." && \
     npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && \
-    echo "Build process completed successfully"
+    echo "Build process completed successfully" && \
+    ls -la dist/
 
 # Production stage
 FROM node:20-alpine AS production
@@ -35,8 +34,9 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --only=production --ignore-scripts --no-audit --no-fund
+# Install only production dependencies with retry logic
+RUN npm config set registry https://registry.npmjs.org/ && \
+    npm ci --only=production --ignore-scripts --no-audit --no-fund --maxsockets 1
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
@@ -53,7 +53,7 @@ USER hangman
 # Expose port
 EXPOSE 5000
 
-# Health check
+# Health check using node instead of external tools
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "const http = require('http'); \
     const options = { hostname: 'localhost', port: 5000, path: '/health', timeout: 2000 }; \
