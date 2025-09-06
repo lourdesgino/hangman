@@ -18,6 +18,7 @@ cp init-db.sql synology-deploy/
 cp package*.json synology-deploy/
 cp -r dist synology-deploy/
 cp -r shared synology-deploy/
+cp -r node_modules synology-deploy/
 
 # Create deployment instructions
 cat > synology-deploy/DEPLOY.md << 'EOF'

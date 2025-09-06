@@ -1,19 +1,15 @@
 # Ultra-simple Dockerfile for Synology NAS with network issues
-# This approach builds locally first, then just copies the built files
+# This approach builds locally first, then just copies everything
 
 FROM node:20-alpine AS production
 
 WORKDIR /app
 
-# Copy package files
+# Copy everything pre-built (including node_modules)
 COPY package*.json ./
-
-# Install only production dependencies
-RUN npm ci --only=production --ignore-scripts --no-audit --no-fund
-
-# Copy pre-built application (build locally first with: npm run build)
 COPY dist ./dist
 COPY shared ./shared
+COPY node_modules ./node_modules
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
