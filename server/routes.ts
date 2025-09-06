@@ -238,6 +238,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               return;
             }
             
+            // Get maxGuesses from payload, default to 6
+            const maxGuesses = message.payload?.maxGuesses || 6;
+            console.log(`[DEBUG] Starting game with maxGuesses: ${maxGuesses} for room ${client.roomCode}`);
+            
             // Determine roles for first round
             const { wordGiverId, guesserId } = determineGameRoles(gameState.players, 1);
             
@@ -245,7 +249,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
               gameStatus: "word_setting",
               wordGiverId,
               guesserId,
-              roundNumber: 1
+              roundNumber: 1,
+              maxGuesses
             });
             
             const updatedGameState = await storage.getGameState(client.roomCode);
@@ -281,9 +286,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
               hint,
               guessedLetters: [],
               wrongGuesses: 0,
-              maxGuesses: 9,
+              maxGuesses: gameState.room.maxGuesses || 6,
               status: "in_progress"
             });
+            
+            console.log(`[DEBUG] Created round with maxGuesses: ${gameState.room.maxGuesses || 6} for room ${client.roomCode}`);
             
             await storage.updateGameRoom(gameState.room.id, {
               gameStatus: "guessing",
@@ -395,9 +402,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const gameState = await storage.getGameState(client.roomCode);
             if (!gameState) return;
             
-            // Calculate final winner
-            const sortedPlayers = gameState.players.sort((a, b) => (b.score || 0) - (a.score || 0));
-            const winner = sortedPlayers[0];
+            // Calculate final winner with tie-breaking logic
+            const sortedPlayers = gameState.players.sort((a, b) => {
+              const scoreA = a.score || 0;
+              const scoreB = b.score || 0;
+              
+              // First sort by score
+              if (scoreB !== scoreA) {
+                return scoreB - scoreA;
+              }
+              
+              // If scores are tied, use win rate as guesser for tie-breaking
+              const playerAAsGuesser = gameState.rounds.filter(round => round.guesserId === a.id);
+              const playerBAsGuesser = gameState.rounds.filter(round => round.guesserId === b.id);
+              
+              const playerAWins = playerAAsGuesser.filter(round => round.status === 'won').length;
+              const playerBWins = playerBAsGuesser.filter(round => round.status === 'won').length;
+              
+              // Calculate win rates (avoid division by zero)
+              const playerAWinRate = playerAAsGuesser.length > 0 ? playerAWins / playerAAsGuesser.length : 0;
+              const playerBWinRate = playerBAsGuesser.length > 0 ? playerBWins / playerBAsGuesser.length : 0;
+              
+              // Sort by win rate (higher win rate first)
+              return playerBWinRate - playerAWinRate;
+            });
+            
+            // Check if top players are tied
+            let finalWinner = null;
+            if (sortedPlayers.length >= 2) {
+              const topScore = sortedPlayers[0].score || 0;
+              const secondScore = sortedPlayers[1].score || 0;
+              
+              if (topScore === secondScore) {
+                // Calculate win rates for tie-breaking
+                const topPlayerAsGuesser = gameState.rounds.filter(round => round.guesserId === sortedPlayers[0].id);
+                const secondPlayerAsGuesser = gameState.rounds.filter(round => round.guesserId === sortedPlayers[1].id);
+                
+                const topPlayerWins = topPlayerAsGuesser.filter(round => round.status === 'won').length;
+                const secondPlayerWins = secondPlayerAsGuesser.filter(round => round.status === 'won').length;
+                
+                const topPlayerWinRate = topPlayerAsGuesser.length > 0 ? topPlayerWins / topPlayerAsGuesser.length : 0;
+                const secondPlayerWinRate = secondPlayerAsGuesser.length > 0 ? secondPlayerWins / secondPlayerAsGuesser.length : 0;
+                
+                if (Math.abs(topPlayerWinRate - secondPlayerWinRate) < 0.001) { // Use small epsilon for float comparison
+                  finalWinner = null; // It's a draw
+                } else {
+                  finalWinner = sortedPlayers[0];
+                }
+              } else {
+                finalWinner = sortedPlayers[0];
+              }
+            } else if (sortedPlayers.length === 1) {
+              finalWinner = sortedPlayers[0];
+            }
             
             await storage.updateGameRoom(gameState.room.id, {
               gameStatus: "game_finished"
@@ -406,7 +463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const updatedGameState = await storage.getGameState(client.roomCode);
             broadcastToRoom(client.roomCode, {
               type: 'game_state_update',
-              payload: { ...updatedGameState, finalWinner: winner }
+              payload: { ...updatedGameState, finalWinner }
             });
             break;
           }

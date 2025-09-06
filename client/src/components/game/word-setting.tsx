@@ -21,8 +21,8 @@ export default function WordSetting({ gameState, currentPlayer, onSetWord }: Wor
   const isMyTurn = currentPlayer && room.wordGiverId === currentPlayer.id;
 
   const handleSubmit = () => {
-    if (!word.trim() || !hint.trim()) return;
-    onSetWord(word.trim(), hint.trim());
+    if (!word.trim()) return;
+    onSetWord(word.trim(), hint.trim() || "No hint provided");
   };
 
   return (
@@ -56,10 +56,10 @@ export default function WordSetting({ gameState, currentPlayer, onSetWord }: Wor
                 </div>
                 
                 <div className="space-y-2">
-                  <Label htmlFor="hint">Hint</Label>
+                  <Label htmlFor="hint">Hint (Optional)</Label>
                   <Input
                     id="hint"
-                    placeholder="Give a helpful hint"
+                    placeholder="Give a helpful hint (optional)"
                     value={hint}
                     onChange={(e) => setHint(e.target.value)}
                   />
@@ -67,7 +67,7 @@ export default function WordSetting({ gameState, currentPlayer, onSetWord }: Wor
                 
                 <Button 
                   onClick={handleSubmit}
-                  disabled={!word.trim() || !hint.trim()}
+                  disabled={!word.trim()}
                   className="w-full bg-primary text-white hover:bg-primary/90"
                 >
                   Set Word & Start Round

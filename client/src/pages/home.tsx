@@ -13,6 +13,7 @@ export default function Home() {
   const [playerId, setPlayerId] = useState<string>("");
   const [roundEndCheck, setRoundEndCheck] = useState<any>(null);
   const [showGameOver, setShowGameOver] = useState(false);
+  const [finalWinner, setFinalWinner] = useState<any>(null);
 
   const { sendMessage, isConnected } = useWebSocket((message) => {
     switch (message.type) {
@@ -21,7 +22,8 @@ export default function Home() {
         if (message.payload.roundEndCheck?.roundEnded) {
           setRoundEndCheck(message.payload.roundEndCheck);
         }
-        if (message.payload.finalWinner) {
+        if (message.payload.finalWinner !== undefined) {
+          setFinalWinner(message.payload.finalWinner);
           setShowGameOver(true);
         }
         break;
@@ -62,8 +64,12 @@ export default function Home() {
     });
   };
 
-  const handleStartGame = () => {
-    sendMessage({ type: 'start_game' });
+  const handleStartGame = (maxGuesses: number = 6) => {
+    console.log(`[DEBUG] Sending start_game with maxGuesses: ${maxGuesses}`);
+    sendMessage({ 
+      type: 'start_game',
+      payload: { maxGuesses }
+    });
   };
 
   const handleGuessLetter = (letter: string) => {
@@ -95,6 +101,7 @@ export default function Home() {
     setPlayerId("");
     setShowGameOver(false);
     setRoundEndCheck(null);
+    setFinalWinner(null);
   };
 
   const currentPlayer = gameState?.players.find(p => p.name === playerId);
@@ -140,6 +147,7 @@ export default function Home() {
         {getCurrentScreen() === 'lobby' && gameState && (
           <GameLobby 
             gameState={gameState} 
+            currentPlayer={currentPlayer}
             onStartGame={handleStartGame}
             onLeaveGame={handleLeaveGame}
           />
@@ -175,6 +183,7 @@ export default function Home() {
         {(getCurrentScreen() === 'game_over' || showGameOver) && gameState && (
           <GameOverModal
             gameState={gameState}
+            finalWinner={finalWinner}
             onPlayAgain={() => {
               setShowGameOver(false);
               handleLeaveGame();
