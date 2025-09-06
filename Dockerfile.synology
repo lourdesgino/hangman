@@ -1,22 +1,31 @@
-# Multi-stage build for Node.js application
+# Alternative Dockerfile optimized for Synology NAS and ARM64 architectures
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Update package list and install build dependencies
+RUN apk update && apk add --no-cache python3 make g++
+
 # Copy package files
 COPY package*.json ./
 
-# Clear npm cache and install ALL dependencies (including devDependencies for building)
-RUN npm cache clean --force && \
-    npm ci --include=dev --no-optional && \
-    npm list vite || echo "Vite not found in node_modules"
+# Install dependencies with more verbose output for debugging
+RUN npm config set loglevel verbose && \
+    npm cache clean --force && \
+    npm install --include=dev --no-audit --no-fund && \
+    echo "Checking vite installation:" && \
+    npm list vite && \
+    npx vite --version
 
 # Copy source code
 COPY . .
 
-# Verify vite is available and build the application
-RUN npx vite --version && \
-    npm run build:docker
+# Build with explicit npx calls
+RUN echo "Starting build process..." && \
+    npx vite build && \
+    echo "Vite build completed, starting esbuild..." && \
+    npx esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist && \
+    echo "Build process completed successfully"
 
 # Production stage
 FROM node:20-alpine AS production
@@ -27,15 +36,15 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install only production dependencies
-RUN npm ci --only=production --ignore-scripts
+RUN npm ci --only=production --ignore-scripts --no-audit --no-fund
 
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/shared ./shared
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S hangman -u 1001
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S hangman -u 1001 -G nodejs
 
 # Change ownership of the app directory
 RUN chown -R hangman:nodejs /app
