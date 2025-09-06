@@ -20,6 +20,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `docker-compose logs -f app` - View application logs
 - `docker-compose logs -f db` - View database logs
 
+## Synology NAS Deployment
+
+For deploying on network-restricted environments like Synology NAS:
+
+- `./create-synology-package.sh` - Build and package for offline deployment
+- **IMPORTANT**: Run this script after any production build or changes to create an updated deployment package
+- The script creates `synology-deploy/` folder with all dependencies included for offline installation
+- Copy the generated folder to your NAS and run `sudo docker-compose up -d`
+
 ## Architecture Overview
 
 This is a real-time multiplayer hangman game with a client-server architecture, fully containerized with Docker:
